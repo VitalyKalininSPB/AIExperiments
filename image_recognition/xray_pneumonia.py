@@ -153,7 +153,7 @@ model.compile(loss="binary_crossentropy",
              optimizer="adam",
              metrics=["accuracy"])
 # FIXME: Which else metrics exists?
-
+"""
 model_1 = model.fit(
                     train_generator,
                     epochs=4,
@@ -206,3 +206,213 @@ f1_score = (2*precision*recall/(precision+recall))
 print("Recall of the model is {:.2f}".format(recall))
 print("Precision of the model is {:.2f}".format(precision))
 print("F1-Score: {}".format(f1_score))
+"""
+
+# Measure and improvement!
+
+# Image Augmentation
+train_datagen_2 = ImageDataGenerator(
+                rescale = 1./255,
+                shear_range = 0.2,
+                zoom_range=0.2,
+                horizontal_flip=True,
+                rotation_range=10,
+                fill_mode="nearest")
+
+val_datagen = ImageDataGenerator(
+              rescale = 1./255)
+
+train_generator_2 = train_datagen_2.flow_from_dataframe(
+                df_train,
+                x_col="image",
+                y_col="class",
+                target_size=(150,150),
+                batch_size=32,
+                class_mode="binary",
+                seed=7)
+
+val_generator = val_datagen.flow_from_dataframe(
+                df_val,
+                x_col="image",
+                y_col="class",
+                target_size=(150,150),
+                batch_size=32,
+                class_mode="binary",
+                seed=7)
+
+test_generator = val_datagen.flow_from_dataframe(
+                df_test,
+                x_col="image",
+                y_col="class",
+                target_size=(150,150),
+                batch_size=32,
+                class_mode="binary",
+                seed=7,
+                shuffle=False
+                )
+
+# Hyperparameter tuning
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
+lr_reduce = ReduceLROnPlateau(monitor="val_accuracy", factor=0.1, min_delta=0.0001, patience=1, verbose=1)
+
+filepath="weights.keras"
+checkpoint = ModelCheckpoint(filepath, monitor="val_accuracy", verbose=1, save_best_only=True, mode="max")
+
+model = Sequential()
+model.add(Conv2D(filters=32, kernel_size=(3,3), activation="relu", padding="same",
+                 input_shape=(150,150,3)))
+
+model.add(Conv2D(filters=32, kernel_size=(3,3), activation="relu", padding="same"))
+model.add(BatchNormalization())
+model.add(MaxPooling2D(pool_size=(2,2)))
+
+model.add(Conv2D(filters=64, kernel_size=(3,3), activation="relu", padding="same"))
+model.add(Conv2D(filters=64, kernel_size=(3,3), activation="relu", padding="same"))
+model.add(BatchNormalization())
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(Flatten())
+model.add(Dense(128,activation="relu"))
+model.add(BatchNormalization())
+model.add(Dropout(rate=0.6))
+model.add(Dense(1, activation="sigmoid"))
+
+model.compile(loss="binary_crossentropy",
+              optimizer=Adam(learning_rate=0.001),
+              metrics=["accuracy"])
+
+print(model.summary())
+print('Optimized model')
+
+# training the model
+
+'''model_htuning = model.fit(
+            train_generator_2,
+            epochs=10,
+            validation_data=val_generator,
+            callbacks=[lr_reduce,checkpoint])
+
+plt.figure(figsize=(12, 8))
+
+plt.subplot(2, 2, 1)
+plt.plot(model_htuning.history['loss'], label='Training Loss')
+plt.plot(model_htuning.history['val_loss'], label='Validation Loss')
+plt.legend()
+plt.title('Loss Evolution')
+
+plt.subplot(2, 2, 2)
+plt.plot(model_htuning.history['accuracy'], label='Training Accuracy')
+plt.plot(model_htuning.history['val_accuracy'], label='Validation Accuracy')
+plt.legend()
+plt.title('Accuracy Evolution')
+
+plt.show()
+
+evaluation = model.evaluate(test_generator)
+print(f"Test Accuracy: {evaluation[1] * 100:.2f}%")
+
+evaluation = model.evaluate(train_generator_2)
+print(f"Train Accuracy: {evaluation[1] * 100:.2f}%")
+
+y_true = test_generator.classes
+y_pred = (model.predict(test_generator) > 0.5).astype("int32")
+
+from sklearn.metrics import confusion_matrix
+
+plt.figure(figsize=(12,5))
+
+confusion_matrix = confusion_matrix(y_true, y_pred)
+sns.heatmap(confusion_matrix, annot=True, fmt="d")
+
+plt.xlabel("Predicted Label", fontsize= 12)
+plt.ylabel("True Label", fontsize= 12)
+
+plt.show()
+'''
+
+
+# Transfer Learning
+from tensorflow.keras.applications import ResNet152V2
+resnet_base_model = ResNet152V2(input_shape=(150, 150, 3), include_top=False, weights='imagenet')
+
+resnet_base_model.summary()
+# transfer learning network
+
+model_tl = Sequential()
+model_tl.add(resnet_base_model)
+model_tl.add(Flatten())
+
+model_tl.add(Dense(1024,activation="relu"))
+model_tl.add(BatchNormalization())
+model_tl.add(Dropout(rate=0.5))
+
+model_tl.add(Dense(128,activation="relu"))
+model_tl.add(BatchNormalization())
+model_tl.add(Dropout(rate=0.4))
+
+model_tl.add(Dense(1, activation="sigmoid"))
+
+model_tl.summary()
+
+#freeze initial layers of the network
+model_tl.compile(loss="binary_crossentropy",
+              optimizer=Adam(learning_rate=0.001),
+              metrics=["accuracy"])
+
+resnet_base_model.trainable = False
+
+model_tl_final = model_tl.fit(
+          train_generator_2,
+          epochs=10,
+          validation_data=val_generator,
+          callbacks=[lr_reduce,checkpoint])
+
+plt.figure(figsize=(12, 8))
+
+plt.subplot(2, 2, 1)
+plt.plot(model_tl_final.history['loss'], label='Training Loss')
+plt.plot(model_tl_final.history['val_loss'], label='Validation Loss')
+plt.legend()
+plt.title('Loss Evolution')
+
+plt.subplot(2, 2, 2)
+plt.plot(model_tl_final.history['accuracy'], label='Training Accuracy')
+plt.plot(model_tl_final.history['val_accuracy'], label='Validation Accuracy')
+plt.legend()
+plt.title('Accuracy Evolution')
+
+plt.show()
+
+evaluation = model_tl.evaluate(test_generator)
+print(f"Test Accuracy: {evaluation[1] * 100:.2f}%")
+
+evaluation = model_tl.evaluate(train_generator_2)
+print(f"Train Accuracy: {evaluation[1] * 100:.2f}%")
+
+y_true = test_generator.classes
+y_pred = (model_tl.predict(test_generator) > 0.5).astype("int32")
+
+from sklearn.metrics import confusion_matrix
+
+plt.figure(figsize=(12,5))
+
+confusion_matrix = confusion_matrix(y_true, y_pred)
+sns.heatmap(confusion_matrix, annot=True, fmt="d")
+
+plt.xlabel("Predicted Label", fontsize= 12)
+plt.ylabel("True Label", fontsize= 12)
+
+plt.show()
+
+# Precision, Recall and F1-Score of the model
+
+tn, fp, fn, tp = confusion_matrix.ravel()
+
+precision = tp/(tp+fp)
+recall = tp/(tp+fn)
+f1_score = (2*precision*recall/(precision+recall))
+
+print("Recall of the model is {:.2f}".format(recall))
+print("Precision of the model is {:.2f}".format(precision))
+print('F1-score: {}'.format(f1_score))

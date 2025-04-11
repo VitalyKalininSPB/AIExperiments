@@ -85,3 +85,80 @@ plt.show()
 pca = PCA(n_components=2)
 pComponents = pca.fit_transform(sensor_df_2_scaled)
 principal_df = pd.DataFrame(data = pComponents, columns = ['pc1', 'pc2'])
+
+# Autocorrelation
+# Compute change in daily mean
+pca1 = principal_df['pc1'].pct_change()
+# Compute autocorrelation
+autocorrelation = pca1.dropna().autocorr()
+print('Autocorrelation is: ', autocorrelation)
+
+# Compute change in daily mean
+pca2 = principal_df['pc2'].pct_change()
+# Compute autocorrelation
+autocorrelation = pca2.dropna().autocorr()
+print('Autocorrelation is: ', autocorrelation)
+
+# Plot ACF
+from statsmodels.graphics.tsaplots import plot_acf
+plot_acf(pca1.dropna(), lags=20, alpha=0.05)
+plt.show()
+
+# Modeling
+# import kmeans
+from sklearn.cluster import KMeans
+# initialize and fit kmeans
+kmeans = KMeans(n_clusters=2, random_state=13)
+kmeans.fit(principal_df.values)
+
+# prediction
+labels = kmeans.predict(principal_df.values)
+
+# plotting the clusters
+_ = plt.figure(figsize=(9,7))
+_ = plt.scatter(principal_df['pc1'], principal_df['pc2'], c=labels)
+_ = plt.xlabel('pc1')
+_ = plt.ylabel('pc2')
+_ = plt.title('K-means of clustering')
+plt.show()
+
+# Write a function that calculates distance between each point and
+# the centroid of the closest cluster
+
+def getDistanceByPoint(data, model):
+    """ Function that calculates the distance between a point and centroid of a cluster,
+            returns the distances in pandas series"""
+    distance = []
+    for i in range(0,len(data)):
+        Xa = np.array(data.loc[i])
+        Xb = model.cluster_centers_[model.labels_[i]-1]
+        distance.append(np.linalg.norm(Xa-Xb))
+    return pd.Series(distance, index=data.index)
+
+# Assume that 13% of the entire data set are anomalies
+outliers_fraction = 0.13
+
+# get the distance between each point and its nearest centroid.
+# the biggest distances are considered as anomaly
+distance = getDistanceByPoint(principal_df, kmeans)
+
+# number of observations that equate to the 13% of the entire data set
+number_of_outliers = int(outliers_fraction*len(distance))
+
+# Take the minimum of the largest 13% of the distances as the threshold
+threshold = distance.nlargest(number_of_outliers).min()
+
+# anomaly1 contains the anomaly result of the above method Cluster (0:normal, 1:anomaly)
+principal_df['kmeans_anomaly'] = (distance >= threshold).astype(int)
+
+sensor_df['kmeans_anomaly'] = pd.Series(principal_df['kmeans_anomaly'].values, index=sensor_df.index)
+a = sensor_df[sensor_df['kmeans_anomaly'] == 1] #anomaly
+_ = plt.figure(figsize=(18,6))
+_ = plt.plot(sensor_df['sensor_00'], color='blue', label='Normal')
+_ = plt.plot(a['sensor_00'], linestyle='none', marker='X', color='red', markersize=12, label='KMeans Anomaly')
+#_ = plt.plot(dfBroken['sensor_00'], linestyle='none', marker='X', color='green', markersize=12, label='Broken')
+_ = plt.xlabel('Date and Time')
+_ = plt.ylabel('Sensor Reading')
+_ = plt.title('Sensor_00 Anomalies')
+_ = plt.legend(loc='best')
+plt.show()
